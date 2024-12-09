@@ -1,0 +1,77 @@
+zabbix_export:
+  version: '7.2'
+  template_groups:
+    - uuid: 7df96b18c230490a9a0a9e2307226338
+      name: Templates
+  host_groups:
+    - uuid: 825756ff221e4da78504dde0537b62b0
+      name: 'Core - Security - Banned Ip'
+  templates:
+    - uuid: e4eb526868ad418f98065789a31c0b78
+      template: Incama-f2b-iptables-tpl
+      name: Incama-f2b-iptables-tpl
+      description: 'This template gets the banned ip''s from the iptables firewall and creates new hosts which we can query. Using a free ip to geolocation api we now can determine where the attacks came from utilizing the lon and lat coordinates within the host inventory which are filled in by a second template which is attached when the host gets created.'
+      groups:
+        - name: Templates
+      items:
+        - uuid: 5056835a843e41dcbdf9dd6c519883d1
+          name: 'Fail2Ban Get Raw Data'
+          key: 'vfs.file.contents[{$JSONLOCATION}]'
+          delay: 1d
+          history: 90d
+          value_type: TEXT
+          description: 'Get the parsed Json list which was generated bij Iptables.'
+          tags:
+            - tag: Data
+              value: Raw
+      discovery_rules:
+        - uuid: 9aa02cf777ec43eaa5b4df958782ce3a
+          name: 'Process Fail2Ban Data'
+          type: DEPENDENT
+          key: raw.data.processed
+          lifetime: 1h
+          enabled_lifetime_type: DISABLE_NEVER
+          item_prototypes:
+            - uuid: cd64c8adf5504de48915b6199d65f2e3
+              name: 'Banned {#IP}'
+              type: DEPENDENT
+              key: 'banned.[{#IP}]'
+              history: 90d
+              value_type: TEXT
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.[?(@.ip=="{#IP}")].ip'
+                - type: LTRIM
+                  parameters:
+                    - '["'
+                - type: RTRIM
+                  parameters:
+                    - '"]'
+              master_item:
+                key: 'vfs.file.contents[{$JSONLOCATION}]'
+          host_prototypes:
+            - uuid: 1b158b62ad0640649b1971fd8ddeb52f
+              host: 'Banned {#IP}'
+              name: 'Banned {#IP}'
+              inventory_mode: AUTOMATIC
+              group_links:
+                - group:
+                    name: 'Core - Security - Banned Ip'
+              templates:
+                - name: Incama-geo-information-tpl
+              tags:
+                - tag: host
+                  value: banned
+              custom_interfaces: 'YES'
+              interfaces:
+                - ip: '{#IP}'
+          master_item:
+            key: 'vfs.file.contents[{$JSONLOCATION}]'
+          lld_macro_paths:
+            - lld_macro: '{#IP}'
+              path: $.ip
+      macros:
+        - macro: '{$JSONLOCATION}'
+          value: /tmp/data.json
+          description: 'Default path jo json file. Adjust when needed.'
